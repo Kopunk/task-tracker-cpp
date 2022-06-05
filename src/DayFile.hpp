@@ -1,4 +1,5 @@
 #include <vector>
+#include <set>
 
 #ifndef JSON_FILE_H
 #include "JsonFile.hpp"
@@ -8,6 +9,10 @@
 #include <Log.h>
 #endif
 
+#ifndef CONFIG_FILE_H
+#include "ConfigFile.hpp"
+#endif
+
 #define DAY_FILE_H
 
 class DayFile : public JsonFile
@@ -15,14 +20,7 @@ class DayFile : public JsonFile
     using json = nlohmann::json;
 
 private:
-    struct status
-    {
-        std::string name;
-        std::string message;
-        std::string start_time;
-
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE(status, name, message, start_time)
-    } status;
+    friend class StateFile;
 
     struct timeline_element
     {
@@ -43,29 +41,23 @@ private:
     struct schema
     {
         std::string date;
-        bool is_tracking;
-        struct status status;
         std::vector<struct timeline_element> timeline;
 
-        NLOHMANN_DEFINE_TYPE_INTRUSIVE(schema, date, is_tracking, status, timeline)
+        NLOHMANN_DEFINE_TYPE_INTRUSIVE(schema, date, timeline)
     } schema;
 
-    uint diff_time_min(std::string, std::string);
-    std::string avg_time_hrs(uint);
-    std::string sum_day_task_avg_hrs(std::string, bool);
-    uint sum_day_task_minutes(std::string, bool);
+    std::string sum_day_task_avg_hrs(std::string);
+    uint sum_day_task_minutes(std::string);
 
 public:
-    DayFile(const std::string day_files_path) : JsonFile(day_files_path + "/" + DayFile::get_current_date() + ".json"){};
+    DayFile(const std::string day_files_path, std::string date) : JsonFile(day_files_path + "/" + date + ".json")
+    {
+        schema.date = date;
+    };
 
     void load_day();
     void save_day();
-
-    std::string start_tracking(std::string);
-    std::string stop_tracking();
-    std::string get_status();
-    void start_break();
-    void end_break();
+    std::string get_stats();
 };
 
 void DayFile::load_day()
@@ -92,45 +84,7 @@ void DayFile::save_day()
     save_file();
 }
 
-uint DayFile::diff_time_min(std::string time1, std::string time2) // time is allways in HH:MM
-{
-    using namespace std;
-    // string t1_hrs = time1.substr(0, 2);
-    // string t1_min = time1.substr(3, 2);
-    // string t2_hrs = time2.substr(0, 2);
-    // string t2_min = time2.substr(3, 2);
-    uint min_from_hrs = (stoi(time2.substr(0, 2)) - stoi(time1.substr(0, 2))) * 60;
-    return stoi(time2.substr(3, 2)) + min_from_hrs - stoi(time1.substr(3, 2));
-}
-
-// get averged time in hours (in 0.25h intervals)
-std::string DayFile::avg_time_hrs(uint minutes)
-{
-    uint full_hrs = minutes / 60;
-    uint remainder_minutes = minutes % 60;
-    std::string avg_minutes;
-    switch (remainder_minutes)
-    {
-    case 0 ... 5:
-        avg_minutes = "00";
-        break;
-    case 6 ... 20:
-        avg_minutes = "25";
-        break;
-    case 21 ... 35:
-        avg_minutes = "50";
-        break;
-    case 36 ... 50:
-        avg_minutes = "75";
-        break;
-    default:
-        avg_minutes = "00";
-        full_hrs++;
-    }
-    return std::to_string(full_hrs) + "." + avg_minutes;
-}
-
-uint DayFile::sum_day_task_minutes(std::string name, bool include_current = false)
+uint DayFile::sum_day_task_minutes(std::string name)
 {
     uint min_sum = 0;
     for (auto it : schema.timeline)
@@ -138,83 +92,37 @@ uint DayFile::sum_day_task_minutes(std::string name, bool include_current = fals
         if (it.name == name)
             min_sum += it.minutes;
     }
-    if (include_current && (schema.status.name == name))
-    {
-        min_sum += diff_time_min(schema.status.start_time, DayFile::get_current_time());
-    }
     return min_sum;
 }
 
-std::string DayFile::sum_day_task_avg_hrs(std::string name, bool include_current = false)
+std::string DayFile::sum_day_task_avg_hrs(std::string name)
 {
-    return avg_time_hrs(sum_day_task_minutes(name, include_current));
+    return avg_time_hrs(sum_day_task_minutes(name));
 }
 
-std::string DayFile::stop_tracking()
+// returns stats excluding running tasks (e.g. from other days)
+std::string DayFile::get_stats()
 {
-    std::string ret_status;
-    if (!schema.status.name.empty())
+    using namespace std;
+
+    if (schema.timeline.empty())
     {
-        std::string stop_time = DayFile::get_current_time();
-        std::string task_name = schema.status.name;
-        uint task_time_min = diff_time_min(schema.status.start_time, stop_time);
-
-        struct DayFile::timeline_element tmp_timeline_el = {
-            .name = task_name,
-            .minutes = task_time_min,
-            .start_time = schema.status.start_time,
-            .end_time = stop_time,
-        };
-        schema.timeline.emplace_back(tmp_timeline_el);
-
-        ret_status = "Stopping to track " + task_name + ", for " + std::to_string(task_time_min) + " minutes\n";
-
-        schema.status.name = "";
-        schema.status.message = "Not tracking anything at the moment";
-        schema.status.start_time = "";
-    }
-    else
-    {
-        ret_status = "Not tracking anything at the moment, nothing to do\n";
+        return "No records from " + schema.date + "\n";
     }
 
-    return ret_status;
-}
-
-std::string DayFile::start_tracking(std::string task_name)
-{
-    std::string ret_status;
-    if (schema.status.name == task_name)
+    string ret_str = "";
+    set<string> projects;
+    for (auto it : schema.timeline)
     {
-        ret_status = "Already tracking " + task_name + " for " + std::to_string(diff_time_min(schema.status.start_time, DayFile::get_current_time())) + "\n";
+        projects.insert(it.name);
     }
-    else if (schema.status.name.empty())
+    for (auto it : projects)
     {
-        ret_status = "Start tracking " + task_name + "\n";
-
-        schema.is_tracking = true;
-        schema.status.name = task_name;
-        schema.status.start_time = DayFile::get_current_time();
-        schema.status.message = "Currently tracking " + task_name + " since " + schema.status.start_time;
+        string task_name = it;
+        string avg_time = sum_day_task_avg_hrs(task_name);
+        string time_min = to_string(sum_day_task_minutes(task_name));
+        task_name.append(32 - task_name.length(), ' ');
+        ret_str += "\t- " + task_name + avg_time + "h" + "\t(" + time_min + " min)\n";
     }
-    else // currently tracking different task
-    {
-        ret_status = stop_tracking();
-        ret_status += start_tracking(task_name);
-    }
-
-    return ret_status;
-}
-
-std::string DayFile::get_status()
-{
-    std::string ret_string;
-    ret_string += schema.status.message + "\n";
-
-    if (!schema.status.name.empty())
-    {
-        ret_string += ("Today's total: " + std::to_string(sum_day_task_minutes(schema.status.name, true)) + " minutes");
-    }
-
-    return ret_string;
+    return ret_str;
 }

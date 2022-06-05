@@ -1,22 +1,37 @@
 #include <Log.h>
+#include <rang.hpp>
 #include <CLI11.hpp>
 #include <unistd.h>
+#include <algorithm>
+
+#ifndef CONFIG_FILE_H
+#include "ConfigFile.hpp"
+#endif
+#ifndef DAY_FILE_H
+#include "DayFile.hpp"
+#endif
+#ifndef STATE_FILE_H
+#include "StateFile.hpp"
+#endif
+
+#include "Pomodoro.hpp"
 
 #ifndef APP_VERSION
-#define APP_VERSION "0.1"
+#define APP_VERSION "1.0"
 #endif
 
 #ifndef STATE_DIR
 #define STATE_DIR ".task_tracker"
 #endif
-
-#include "DayFile.hpp"
-#include "ConfigFile.hpp"
-
-
-// void cli_result_handler(bool flag_pomodoro, bool flag_status, std::string flag_add_task, bool flag_stop, std::string flag_stats_day, std::string task_name)
-// {
-// }
+#ifndef CONFIG_FILE_NAME
+#define CONFIG_FILE_NAME "config.json"
+#endif
+#ifndef STATE_FILE_NAME
+#define STATE_FILE_NAME "state.json"
+#endif
+#ifndef DAY_FILE_DIR
+#define DAY_FILE_DIR "history"
+#endif
 
 int main(int argc, char const *argv[])
 {
@@ -24,75 +39,116 @@ int main(int argc, char const *argv[])
 
     const string state_path = (string)getenv("HOME") + "/" + STATE_DIR;
 
-    ConfigFile config_file("TEST_CONFIG_FILE.json");
+    ConfigFile config_file(state_path + "/" + CONFIG_FILE_NAME);
     config_file.load_config();
-    config_file.add_project("mynewawesomeproj");
-    config_file.save_config();
 
-    DayFile day_file("history");
+    // --- cli config ---
+
+    CLI::App cli{"task-tracker++: count time spent on specific tasks or practice the Pomodoro technique"};
+    cli.set_version_flag("-v, --version", "task-tracker++ by Wojciech Kopański\nversion " APP_VERSION);
+    cli.set_help_all_flag("--help-all", "Expand all help");
+
+    // track status
+    auto &cli_status = *cli.add_subcommand("status", "Display current tracking status");
+
+    // track add [task name]
+    auto &cli_add = *cli.add_subcommand("add", "Add new task name to be able to track it");
+    string add_task_name;
+    cli_add.add_option("task name", add_task_name, "Name of the new task or project, e.g. reading")->required();
+
+    // track stop
+    auto &cli_stop = *cli.add_subcommand("stop", "Stop tracking the current task");
+
+    // track stats [date]
+    auto &cli_stats = *cli.add_subcommand("stats", "Get task statistics from the selected day");
+    string stats_date = DayFile::get_current_date();
+    cli_stats.add_option("date", stats_date, "Date in format YYYY-MM-DD, defaults to today (" + stats_date + ")");
+
+    // track -p
+    bool flag_pomodoro;
+    cli.add_flag("-p,--pomodoro", flag_pomodoro, "Display live timer on current task instead of quitting");
+
+    // track [task name]
+    string task_name = "";
+    string available_tasks = "";
+    for (string it : config_file.get_projects())
+    {
+        available_tasks += "\n\t- " + it;
+    }
+    cli.add_option("task name", task_name, "Start tracking one of existing tasks:" + available_tasks);
+
+    CLI11_PARSE(cli, argc, argv);
+
+    // --- handle cli ---
+    // the following doesn't run for --help or --version
+    // using namespace rang;
+
+    DayFile day_file(state_path + "/" + DAY_FILE_DIR, DayFile::get_current_date()); // DAY_FILE_DIR
     day_file.load_day();
+    StateFile state_file(state_path + "/" + STATE_FILE_NAME, day_file); //
+    state_file.load_state();
 
-    cout << day_file.start_tracking("mynewawesomeproj") << endl;
-    cout << day_file.stop_tracking() << endl;
-    cout << day_file.start_tracking("test_tast_1") << endl;
-    cout << day_file.start_tracking("test_tast_2") << endl;
+    if (cli_add)
+    {
+        if (config_file.add_project(add_task_name))
+        {
+            cout << "Added " << rang::fg::green << add_task_name << rang::fg::reset << " to available tasks!" << endl
+                 << endl;
+            config_file.save_config();
+        }
+        else
+        {
+            cout << rang::fg::red << "Error: " << add_task_name << " already exists in config! " << rang::fg::reset << endl
+                 << endl;
+        }
+    }
+    else if (cli_stats)
+    {
+        if (stats_date == DayFile::get_current_date())
+        {
+            cout << state_file.get_stats() << endl;
+        }
+        else
+        {
+            DayFile historical_day_file(state_path + "/" + DAY_FILE_DIR, stats_date); // DAY_FILE_DIR
+            historical_day_file.load_day();
+            cout << historical_day_file.get_stats() << endl;
+        }
+    }
+    else if (cli_status)
+    {
+        cout << state_file.get_status() << endl;
+    }
+    else if (cli_stop)
+    {
+        cout << state_file.stop_tracking() << endl;
+        state_file.save_state();
+        day_file.save_day();
+    }
+    else if (!task_name.empty())
+    {
+        auto projects = config_file.get_projects();
+        if (find(projects.begin(), projects.end(), task_name) != projects.end())
+        {
+            state_file.start_tracking(task_name);
+            cout << "Now tracking " << rang::fg::cyan << task_name << rang::fg::reset << endl
+                 << endl;
+            state_file.save_state();
+            day_file.save_day();
+        }
+        else
+        {
+            cout << rang::fg::red << "Error: " << task_name << " doesn't exist in config! Try: 'track add " << task_name << "'" << rang::fg::reset << endl
+                 << endl;
+        }
+    }
 
-    cout << day_file.get_status() << endl;
+    if (!flag_pomodoro)
+        return 0;
 
-    day_file.save_day();
+    // -- interactive status ---
 
-
-    // CLI::App cli{"task-tracker++: count time spent on specific tasks or practice the Pomodoro technique"};
-
-    // cli.set_version_flag("-v, --version", "task-tracker++ by Wojciech Kopański\nversion " APP_VERSION);
-
-    // bool flag_pomodoro;
-    // cli.add_flag("-p,--pomodoro", flag_pomodoro, "Display live timer on current task");
-
-    // bool flag_status;
-    // cli.add_flag("-i,--info,--status", flag_status, "Display current tracking status");
-
-    // string flag_add_task;
-    // cli.add_option("-a,--add,--add-task", flag_add_task, "Add new task name to track it");
-
-    // bool flag_stop;
-    // cli.add_flag("-s,--stop", flag_stop, "Stop tracking the current task");
-
-    // // bool flag_break;
-    // // cli.add_flag("-b,--break", flag_break, "Take a break!");
-    // // bool flag_resume;
-    // // cli.add_flag("-r,--resume", flag_resume, "Resume tracking the task that you took a break from");
-
-    // string flag_stats_day = DayFile::get_current_date();
-    // cli.add_option("-S,--stats", flag_stats_day, "Get task statistics from the selected day (format: YYYY-MM-DD), defaults to today (" + DayFile::get_current_date() + ")");
-
-    // string task_name;
-    // string available_tasks = "";
-    // for (string it : config_file.get_projects())
-    // {
-    //     available_tasks += "\n\t- " + it;
-    // }
-    // cli.add_option("task name", task_name, "Start tracking one of existing tasks:" + available_tasks);
-
-    // CLI11_PARSE(cli, argc, argv);
-
-
-
-
-    // cli_result_handler(flag_pomodoro, flag_status, flag_add_task, flag_stop, flag_stats_day, task_name);
-
-    // std::cout << '-' << std::flush;
-    // for (;;)
-    // {
-    //     sleep(1);
-    //     std::cout << "\b\\" << std::flush;
-    //     sleep(1);
-    //     std::cout << "\b|" << std::flush;
-    //     sleep(1);
-    //     std::cout << "\b/" << std::flush;
-    //     sleep(1);
-    //     std::cout << "\b-" << std::flush;
-    // }
+    pom::interactive_status(state_file);
 
     return 0;
 }

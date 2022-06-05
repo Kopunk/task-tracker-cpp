@@ -1,6 +1,5 @@
 #include <fstream>
-#include <chrono>
-#include <date.h>
+#include <ctime>
 
 #ifndef INCLUDE_NLOHMANN_JSON_HPP_
 #include <json.hpp>
@@ -23,6 +22,8 @@ protected:
 
     void load_file();
     void save_file();
+
+    std::string avg_time_hrs(uint);
 
 public:
     static std::string get_current_date();
@@ -48,10 +49,48 @@ void JsonFile::save_file()
 
 std::string JsonFile::get_current_date()
 {
-    return date::format("%F", std::chrono::system_clock::now());
+    std::time_t t = std::time(nullptr);
+    std::tm tm = *std::localtime(&t);
+    std::ostringstream stream;
+    stream << std::put_time(&tm, "%F");
+    std::string str = stream.str();
+    return str;
 }
 
 std::string JsonFile::get_current_time()
 {
-    return date::format("%R", std::chrono::system_clock::now());
+    std::time_t t = std::time(nullptr);
+    std::tm tm = *std::localtime(&t);
+    std::ostringstream stream;
+    stream << std::put_time(&tm, "%R");
+    std::string str = stream.str();
+    return str;
 }
+
+// get averged time in hours (in 0.25h intervals)
+std::string JsonFile::avg_time_hrs(uint minutes)
+{
+    uint full_hrs = minutes / 60;
+    uint remainder_minutes = minutes % 60;
+    std::string avg_minutes;
+    switch (remainder_minutes)
+    {
+    case 0 ... 5:
+        avg_minutes = "00";
+        break;
+    case 6 ... 20:
+        avg_minutes = "25";
+        break;
+    case 21 ... 35:
+        avg_minutes = "50";
+        break;
+    case 36 ... 50:
+        avg_minutes = "75";
+        break;
+    default:
+        avg_minutes = "00";
+        full_hrs++;
+    }
+    return std::to_string(full_hrs) + "." + avg_minutes;
+}
+// placed in this class to be inherited and to avoid duplication
