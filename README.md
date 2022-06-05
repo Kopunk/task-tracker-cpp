@@ -4,16 +4,19 @@ count time spent on specific tasks or practice the Pomodoro technique
 
 ## Installation
 
-> :warning: Ensure you have CMake and Make installed
+> Ensure you have CMake and Make installed
 
 ```
 git clone https://github.com/Kopunk/task-tracker-cpp.git
-cd task-tracker++
+cd task-tracker-cpp
 ./install.sh
+# Follow instructions to add executable to PATH
+
 track --version
 ```
 
-**Additionally: add the listed directory to PATH** 
+> ℹ️ Configuration and binary is installed to single direcotry in user's home directory
+
 
 ## Usage
 
@@ -64,6 +67,6 @@ stats
 
 ## Used libraries
 
-- [nlohmann / json](https://json.nlohmann.me)
-- [agauniyal / rang](https://agauniyal.github.io/rang/)
-- [CLIUtils / CLI11](https://cliutils.github.io/cli11/book/)
+- [json](https://github.com/nlohmann/json)
+- [rang](https://github.com/agauniyal/rang)
+- [CLI11](https://github.com/CLIUtils/CLI11)
